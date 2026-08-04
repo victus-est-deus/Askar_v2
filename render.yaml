@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: askar-expenses
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        sync: false

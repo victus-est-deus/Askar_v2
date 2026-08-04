@@ -1,0 +1,6 @@
+data/
+.gocache/
+expenses
+expenses.exe
+.env
+.github_known_hosts
