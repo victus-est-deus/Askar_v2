@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Траты</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="container">
+    <header>
+      <div><p class="eyebrow">ЛИЧНЫЕ ФИНАНСЫ</p><h1>Мои траты</h1></div>
+      <button class="add-button" id="open-form">+ Добавить трату</button>
+    </header>
+    <section class="summary"><span>Всего за выбранный период</span><strong id="total">0 ₸</strong><small id="count">0 записей</small></section>
+    <section class="controls">
+      <label class="search"><span>⌕</span><input id="search" placeholder="Поиск по комментарию" /></label>
+      <div class="periods" aria-label="Быстрый выбор периода"><button data-period="month-start">С начала месяца</button><button data-period="week">Неделя</button><button data-period="month">Месяц</button></div>
+      <div class="custom-dates"><label>От<input type="date" id="date-from" /></label><label>До<input type="date" id="date-to" /></label><button id="reset">Сбросить</button></div>
+    </section>
+    <section class="table-card"><div class="table-head"><span>Трата</span><span>Дата и время</span><span>Сумма</span><span></span></div><div id="rows"></div><p class="empty" id="empty">Здесь появятся ваши траты.</p></section>
+  </main>
+  <dialog id="expense-dialog"><form id="expense-form"><div class="form-title"><h2>Новая трата</h2><button type="button" class="close" id="close-form">×</button></div><label>Сумма, ₸<input name="amount" type="number" min="1" step="0.01" placeholder="Например, 3500" required autofocus /></label><label>Комментарий<input name="comment" maxlength="100" placeholder="Например, продукты" required /></label><label>Дата и время<input name="spentAt" id="spent-at" placeholder="14:30 04.08.2026" required /></label><p class="hint">Формат: ЧЧ:ММ ДД.ММ.ГГГГ</p><p class="error" id="form-error"></p><button class="save" type="submit">Сохранить</button></form></dialog>
+  <script src="/app.js"></script>
+</body>
+</html>
