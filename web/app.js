@@ -9,10 +9,16 @@ function parse(value) {
   return new Date(year, month - 1, day, hours, minutes);
 }
 
-function defaultTime() {
+function defaultDateTime() {
   const date = new Date();
   const pad = value => String(value).padStart(2, '0');
-  return `${pad(date.getHours())}:${pad(date.getMinutes())} ${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function formatDateTimeForAPI(value) {
+  const [date, time] = value.split('T');
+  const [year, month, day] = date.split('-');
+  return `${time} ${day}.${month}.${year}`;
 }
 
 function plural(count) {
@@ -106,7 +112,7 @@ function setPeriod(kind) {
 function openForm(type) {
   state.formType = type;
   $('#transaction-form').reset();
-  $('#spent-at').value = defaultTime();
+  $('#spent-at').value = defaultDateTime();
   $('#form-error').textContent = '';
   $('#form-title').textContent = type === 'income' ? 'Новая прибыль' : 'Новая трата';
   $('#save-transaction').textContent = type === 'income' ? 'Добавить прибыль' : 'Сохранить трату';
@@ -134,7 +140,7 @@ $('#reset').onclick = () => {
 $('#transaction-form').onsubmit = async event => {
   event.preventDefault();
   const form = new FormData(event.target);
-  const data = { amount: Number(form.get('amount')), comment: form.get('comment'), spentAt: form.get('spentAt') };
+  const data = { amount: Number(form.get('amount')), comment: form.get('comment'), spentAt: formatDateTimeForAPI(form.get('spentAt')) };
   const endpoint = state.formType === 'income' ? 'incomes' : 'expenses';
   const response = await fetch(`/api/${endpoint}`, {
     method: 'POST',
