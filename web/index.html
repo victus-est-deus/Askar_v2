@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/features.css" />
 </head>
 <body>
   <main class="container">
@@ -27,8 +28,14 @@
 
     <section class="controls">
       <label class="search"><span>⌕</span><input id="search" placeholder="Поиск по расходам и прибыли" /></label>
+      <div class="type-filters" aria-label="Фильтр по типу операции">
+        <button class="active" data-type-filter="all">Все</button>
+        <button data-type-filter="expense">Траты</button>
+        <button data-type-filter="income">Прибыль</button>
+      </div>
       <div class="periods" aria-label="Быстрый выбор периода"><button data-period="month-start">С начала месяца</button><button data-period="week">Неделя</button><button data-period="month">Месяц</button></div>
       <div class="custom-dates"><label>От<input type="date" id="date-from" /></label><label>До<input type="date" id="date-to" /></label><button id="reset">Сбросить</button></div>
+      <button class="export-button" id="export-excel" type="button">↓ Скачать Excel</button>
     </section>
 
     <section class="table-card">

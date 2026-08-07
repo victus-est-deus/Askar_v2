@@ -1,0 +1,50 @@
+.periods,
+.type-filters {
+  display: flex;
+  gap: 5px;
+}
+
+.type-filters button {
+  border: 0;
+  background: #f0f3f1;
+  border-radius: 7px;
+  color: #526057;
+  padding: 9px 10px;
+  font: 600 11px Manrope;
+  cursor: pointer;
+}
+
+.type-filters button.active {
+  background: var(--ink);
+  color: #fff;
+}
+
+.export-button {
+  border: 1px solid #b8d9c5;
+  background: #edf8f1;
+  color: var(--green);
+  border-radius: 8px;
+  padding: 9px 12px;
+  font: 700 11px Manrope;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.export-button:hover {
+  background: var(--mint);
+}
+
+.export-button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+@media (max-width: 620px) {
+  .type-filters {
+    order: -1;
+  }
+
+  .export-button {
+    flex: 1;
+  }
+}

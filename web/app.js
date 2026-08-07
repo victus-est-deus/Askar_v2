@@ -1,4 +1,4 @@
-const state = { items: [], period: null, formType: 'expense' };
+const state = { items: [], period: null, formType: 'expense', typeFilter: 'all' };
 const $ = selector => document.querySelector(selector);
 const format = value => new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value) + ' ₸';
 
@@ -40,8 +40,84 @@ function filtered() {
   return state.items.filter(item => {
     const date = parse(item.spentAt);
     const matchesQuery = !query || item.comment.toLowerCase().includes(query) || typeLabel(item.type).toLowerCase().includes(query);
-    return matchesQuery && (!from || date >= new Date(from + 'T00:00')) && (!to || date <= new Date(to + 'T23:59:59'));
+    const matchesType = state.typeFilter === 'all' || item.type === state.typeFilter;
+    return matchesQuery && matchesType && (!from || date >= new Date(from + 'T00:00')) && (!to || date <= new Date(to + 'T23:59:59'));
   });
+}
+
+function escapeXml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
+}
+
+function excelCell(value, type = 'String', style = '') {
+  const styleAttribute = style ? ` ss:StyleID="${style}"` : '';
+  return `<Cell${styleAttribute}><Data ss:Type="${type}">${escapeXml(value)}</Data></Cell>`;
+}
+
+function exportExcel() {
+  const items = filtered();
+  if (!items.length) return;
+
+  const expenses = items.filter(item => item.type === 'expense');
+  const incomes = items.filter(item => item.type === 'income');
+  const expenseTotal = expenses.reduce((sum, item) => sum + item.amount, 0);
+  const incomeTotal = incomes.reduce((sum, item) => sum + item.amount, 0);
+  const query = $('#search').value.trim() || 'Без поиска';
+  const from = $('#date-from').value || 'Без ограничения';
+  const to = $('#date-to').value || 'Без ограничения';
+  const filterLabel = state.typeFilter === 'expense' ? 'Траты' : state.typeFilter === 'income' ? 'Прибыль' : 'Все операции';
+  const rows = items.map(item => {
+    const signedAmount = item.type === 'income' ? item.amount : -item.amount;
+    const style = item.type === 'income' ? 'Income' : 'Expense';
+    return `<Row>${excelCell(typeLabel(item.type))}${excelCell(item.comment)}${excelCell(item.spentAt)}${excelCell(signedAmount, 'Number', style)}</Row>`;
+  }).join('');
+
+  const workbook = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Center"/><Font ss:FontName="Arial" ss:Size="10"/></Style>
+  <Style ss:ID="Title"><Font ss:FontName="Arial" ss:Size="16" ss:Bold="1"/></Style>
+  <Style ss:ID="Header"><Font ss:FontName="Arial" ss:Bold="1"/><Interior ss:Color="#E7EBE8" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="Income"><Font ss:Color="#157545"/><NumberFormat ss:Format="+# ##0.00 &quot;₸&quot;;-# ##0.00 &quot;₸&quot;"/></Style>
+  <Style ss:ID="Expense"><Font ss:Color="#A54D46"/><NumberFormat ss:Format="+# ##0.00 &quot;₸&quot;;-# ##0.00 &quot;₸&quot;"/></Style>
+  <Style ss:ID="Total"><Font ss:Bold="1"/><NumberFormat ss:Format="# ##0.00 &quot;₸&quot;"/></Style>
+ </Styles>
+ <Worksheet ss:Name="Операции">
+  <Table>
+   <Column ss:Width="85"/><Column ss:Width="250"/><Column ss:Width="125"/><Column ss:Width="105"/>
+   <Row ss:Height="26">${excelCell('Финансовые операции', 'String', 'Title')}</Row>
+   <Row>${excelCell('Фильтр')}${excelCell(filterLabel)}</Row>
+   <Row>${excelCell('Поиск')}${excelCell(query)}</Row>
+   <Row>${excelCell('Период')}${excelCell(`${from} — ${to}`)}</Row>
+   <Row/>
+   <Row>${excelCell('Тип', 'String', 'Header')}${excelCell('Комментарий', 'String', 'Header')}${excelCell('Дата и время', 'String', 'Header')}${excelCell('Сумма', 'String', 'Header')}</Row>
+   ${rows}
+   <Row/>
+   <Row>${excelCell('Расходы')}${excelCell('')}${excelCell('')}${excelCell(expenseTotal, 'Number', 'Total')}</Row>
+   <Row>${excelCell('Прибыль')}${excelCell('')}${excelCell('')}${excelCell(incomeTotal, 'Number', 'Total')}</Row>
+   <Row>${excelCell('Чистый результат')}${excelCell('')}${excelCell('')}${excelCell(incomeTotal - expenseTotal, 'Number', 'Total')}</Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><FrozenNoSplit/><SplitHorizontal>6</SplitHorizontal><TopRowBottomPane>6</TopRowBottomPane><ActivePane>2</ActivePane></WorksheetOptions>
+ </Worksheet>
+</Workbook>`;
+
+  const blob = new Blob([workbook], { type: 'application/vnd.ms-excel;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  const date = new Date().toISOString().slice(0, 10);
+  link.href = url;
+  link.download = `finansy-${date}.xls`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function escapeHtml(value) {
@@ -72,6 +148,7 @@ function render() {
   $('#balance-total').classList.toggle('negative', incomeTotal - expenseTotal < 0);
   $('#expense-count').textContent = `${expenses.length} ${plural(expenses.length)}`;
   $('#income-count').textContent = `${incomes.length} ${plural(incomes.length)}`;
+  $('#export-excel').disabled = items.length === 0;
 
   document.querySelectorAll('.delete').forEach(button => {
     button.onclick = async () => {
@@ -130,10 +207,18 @@ $('#date-from').onchange = $('#date-to').onchange = () => {
   render();
 };
 document.querySelectorAll('[data-period]').forEach(button => button.onclick = () => setPeriod(button.dataset.period));
+document.querySelectorAll('[data-type-filter]').forEach(button => button.onclick = () => {
+  state.typeFilter = button.dataset.typeFilter;
+  document.querySelectorAll('[data-type-filter]').forEach(filterButton => filterButton.classList.toggle('active', filterButton === button));
+  render();
+});
+$('#export-excel').onclick = exportExcel;
 $('#reset').onclick = () => {
   $('#search').value = $('#date-from').value = $('#date-to').value = '';
   state.period = null;
+  state.typeFilter = 'all';
   document.querySelectorAll('[data-period]').forEach(button => button.classList.remove('active'));
+  document.querySelectorAll('[data-type-filter]').forEach(button => button.classList.toggle('active', button.dataset.typeFilter === 'all'));
   render();
 };
 
