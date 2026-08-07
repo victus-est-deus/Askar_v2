@@ -116,8 +116,10 @@ function exportExcel() {
   const date = new Date().toISOString().slice(0, 10);
   link.href = url;
   link.download = `finansy-${date}.xls`;
+  document.body.appendChild(link);
   link.click();
-  URL.revokeObjectURL(url);
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function escapeHtml(value) {
