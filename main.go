@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -313,6 +314,160 @@ func itemHandler(store transactionStore, kind, pathPrefix string) http.HandlerFu
 	}
 }
 
+type exportRecord struct {
+	Record
+	Kind      string
+	spentTime time.Time
+}
+
+func transactionLabel(kind string) string {
+	if kind == "income" {
+		return "Прибыль"
+	}
+	return "Расход"
+}
+
+func escapeXML(value string) string {
+	var result strings.Builder
+	_ = xml.EscapeText(&result, []byte(value))
+	return result.String()
+}
+
+func excelCell(value, dataType, style string) string {
+	styleAttribute := ""
+	if style != "" {
+		styleAttribute = ` ss:StyleID="` + style + `"`
+	}
+	return `<Cell` + styleAttribute + `><Data ss:Type="` + dataType + `">` + escapeXML(value) + `</Data></Cell>`
+}
+
+func exportHandler(store transactionStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+			return
+		}
+
+		typeFilter := r.URL.Query().Get("type")
+		if typeFilter == "" {
+			typeFilter = "all"
+		}
+		if typeFilter != "all" && typeFilter != "expense" && typeFilter != "income" {
+			http.Error(w, "Некорректный тип операции", http.StatusBadRequest)
+			return
+		}
+
+		parseBound := func(value string) (*time.Time, error) {
+			if value == "" {
+				return nil, nil
+			}
+			parsed, err := time.ParseInLocation("2006-01-02", value, appLocation)
+			return &parsed, err
+		}
+		from, err := parseBound(r.URL.Query().Get("from"))
+		if err != nil {
+			http.Error(w, "Некорректная начальная дата", http.StatusBadRequest)
+			return
+		}
+		to, err := parseBound(r.URL.Query().Get("to"))
+		if err != nil {
+			http.Error(w, "Некорректная конечная дата", http.StatusBadRequest)
+			return
+		}
+		if to != nil {
+			end := to.AddDate(0, 0, 1)
+			to = &end
+		}
+
+		query := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("query")))
+		kinds := []string{"expense", "income"}
+		if typeFilter != "all" {
+			kinds = []string{typeFilter}
+		}
+		items := make([]exportRecord, 0)
+		for _, kind := range kinds {
+			records, err := store.list(kind)
+			if err != nil {
+				http.Error(w, "Не удалось подготовить Excel", http.StatusInternalServerError)
+				return
+			}
+			for _, item := range records {
+				spentAt, err := time.ParseInLocation(timeLayout, item.SpentAt, appLocation)
+				if err != nil {
+					continue
+				}
+				matchesQuery := query == "" || strings.Contains(strings.ToLower(item.Comment), query) || strings.Contains(strings.ToLower(transactionLabel(kind)), query)
+				if !matchesQuery || (from != nil && spentAt.Before(*from)) || (to != nil && !spentAt.Before(*to)) {
+					continue
+				}
+				items = append(items, exportRecord{Record: item, Kind: kind, spentTime: spentAt})
+			}
+		}
+		sort.Slice(items, func(i, j int) bool { return items[i].spentTime.After(items[j].spentTime) })
+
+		filterLabel := "Все операции"
+		if typeFilter == "expense" {
+			filterLabel = "Траты"
+		} else if typeFilter == "income" {
+			filterLabel = "Прибыль"
+		}
+		queryLabel := strings.TrimSpace(r.URL.Query().Get("query"))
+		if queryLabel == "" {
+			queryLabel = "Без поиска"
+		}
+		fromLabel := r.URL.Query().Get("from")
+		if fromLabel == "" {
+			fromLabel = "Без ограничения"
+		}
+		toLabel := r.URL.Query().Get("to")
+		if toLabel == "" {
+			toLabel = "Без ограничения"
+		}
+
+		var expenseTotal, incomeTotal float64
+		var rows strings.Builder
+		for _, item := range items {
+			amount := item.Amount
+			style := "Income"
+			if item.Kind == "expense" {
+				expenseTotal += item.Amount
+				amount = -item.Amount
+				style = "Expense"
+			} else {
+				incomeTotal += item.Amount
+			}
+			rows.WriteString(`<Row>`)
+			rows.WriteString(excelCell(transactionLabel(item.Kind), "String", ""))
+			rows.WriteString(excelCell(item.Comment, "String", ""))
+			rows.WriteString(excelCell(item.SpentAt, "String", ""))
+			rows.WriteString(excelCell(strconv.FormatFloat(amount, 'f', 2, 64), "Number", style))
+			rows.WriteString(`</Row>`)
+		}
+
+		var workbook strings.Builder
+		workbook.WriteString(`<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>`)
+		workbook.WriteString(`<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">`)
+		workbook.WriteString(`<Styles><Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Center"/><Font ss:FontName="Arial" ss:Size="10"/></Style><Style ss:ID="Title"><Font ss:FontName="Arial" ss:Size="16" ss:Bold="1"/></Style><Style ss:ID="Header"><Font ss:FontName="Arial" ss:Bold="1"/><Interior ss:Color="#E7EBE8" ss:Pattern="Solid"/></Style><Style ss:ID="Income"><Font ss:Color="#157545"/><NumberFormat ss:Format="+# ##0.00 &quot;₸&quot;;-# ##0.00 &quot;₸&quot;"/></Style><Style ss:ID="Expense"><Font ss:Color="#A54D46"/><NumberFormat ss:Format="+# ##0.00 &quot;₸&quot;;-# ##0.00 &quot;₸&quot;"/></Style><Style ss:ID="Total"><Font ss:Bold="1"/><NumberFormat ss:Format="# ##0.00 &quot;₸&quot;"/></Style></Styles>`)
+		workbook.WriteString(`<Worksheet ss:Name="Операции"><Table><Column ss:Width="85"/><Column ss:Width="250"/><Column ss:Width="125"/><Column ss:Width="105"/>`)
+		workbook.WriteString(`<Row ss:Height="26">` + excelCell("Финансовые операции", "String", "Title") + `</Row>`)
+		workbook.WriteString(`<Row>` + excelCell("Фильтр", "String", "") + excelCell(filterLabel, "String", "") + `</Row>`)
+		workbook.WriteString(`<Row>` + excelCell("Поиск", "String", "") + excelCell(queryLabel, "String", "") + `</Row>`)
+		workbook.WriteString(`<Row>` + excelCell("Период", "String", "") + excelCell(fromLabel+" — "+toLabel, "String", "") + `</Row><Row/>`)
+		workbook.WriteString(`<Row>` + excelCell("Тип", "String", "Header") + excelCell("Комментарий", "String", "Header") + excelCell("Дата и время", "String", "Header") + excelCell("Сумма", "String", "Header") + `</Row>`)
+		workbook.WriteString(rows.String())
+		workbook.WriteString(`<Row/><Row>` + excelCell("Расходы", "String", "") + excelCell("", "String", "") + excelCell("", "String", "") + excelCell(strconv.FormatFloat(expenseTotal, 'f', 2, 64), "Number", "Total") + `</Row>`)
+		workbook.WriteString(`<Row>` + excelCell("Прибыль", "String", "") + excelCell("", "String", "") + excelCell("", "String", "") + excelCell(strconv.FormatFloat(incomeTotal, 'f', 2, 64), "Number", "Total") + `</Row>`)
+		workbook.WriteString(`<Row>` + excelCell("Чистый результат", "String", "") + excelCell("", "String", "") + excelCell("", "String", "") + excelCell(strconv.FormatFloat(incomeTotal-expenseTotal, 'f', 2, 64), "Number", "Total") + `</Row>`)
+		workbook.WriteString(`</Table><WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><FrozenNoSplit/><SplitHorizontal>6</SplitHorizontal><TopRowBottomPane>6</TopRowBottomPane><ActivePane>2</ActivePane></WorksheetOptions></Worksheet></Workbook>`)
+
+		w.Header().Set("Content-Type", "application/vnd.ms-excel; charset=utf-8")
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="finansy-%s.xls"`, time.Now().In(appLocation).Format("2006-01-02")))
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		_, _ = w.Write([]byte(workbook.String()))
+	}
+}
+
 func main() {
 	store, err := openStore()
 	if err != nil {
@@ -329,6 +484,7 @@ func main() {
 	mux.HandleFunc("/api/expenses/", itemHandler(store, "expense", "/api/expenses/"))
 	mux.HandleFunc("/api/incomes", collectionHandler(store, "income"))
 	mux.HandleFunc("/api/incomes/", itemHandler(store, "income", "/api/incomes/"))
+	mux.HandleFunc("/api/export", exportHandler(store))
 	mux.Handle("/", http.FileServer(http.Dir("web")))
 
 	port := os.Getenv("PORT")
